@@ -21,10 +21,14 @@ Notion2Local 是一个以 Notion 为唯一远端来源的、只读、可恢复�
 ```bash
 cp .env.example .env
 # 编辑 .env，至少设置 DATABASE_URL、POSTGRES_PASSWORD 和 Notion 授权方式
+export NOTION2LOCAL_DATA_ROOT=/home/work_space/notion2local-data
+bash scripts/prepare_storage.sh
 docker compose up -d db
 docker compose up -d web worker scheduler
 docker compose ps
 ```
+
+`NOTION2LOCAL_DATA_ROOT` 必须位于独立挂载的数据盘。启动前的准备脚本会拒绝根分区、Docker data-root 和可用空间不足的路径；PostgreSQL、raw、blob、runtime secret 和可选 viewer 投影全部通过 bind-backed Docker volumes 写入该目录，不会把同步内容持续堆到 `/var/lib/docker` 所在的根分区。
 
 核心入口：
 
@@ -40,7 +44,9 @@ docker compose ps
 首次启动后打开 `http://<部署地址>:8080/admin`，输入远程 `.env` 中的 `SETUP_TOKEN` 进入控制台。控制台支持：
 
 - 输入、轮换、测试和移除 Notion Internal Connection Token；Token 只写入持久化 `config-data` secret volume，不回显、不进入浏览器存储、不写入 Notion。
-- 添加、立即同步和停用 Notion 根页面；停用只停止后续同步，不删除本地快照。
+- 初始化全工作区：不需要逐页登记；系统通过 Notion Search 枚举当前连接可见的所有页面、数据库和数据源，并递归保存块、关系、评论和附件元数据。
+- 之后由 Webhook 信号和每日对账自动发现新增、修改、移动、删除与恢复；相同内容不会重复写入快照，删除默认保留墓碑和历史原文。
+- 仍保留 API 层的单根页面能力用于兼容和受限测试范围，但默认控制台不要求用户逐页添加同步范围。
 - 查看授权状态、Token 来源、API 版本、每日对账时间和当前同步范围。
 
 管理会话使用 HttpOnly、SameSite cookie；如果通过公网或内网穿透访问控制台，应优先使用 HTTPS。`SETUP_TOKEN` 仍然只用于管理面认证，不能替代 Notion Token。
@@ -75,7 +81,7 @@ docker compose up -d --force-recreate web worker scheduler
 curl -fsS http://127.0.0.1:8080/api/v1/setup/status
 ```
 
-最后一条命令不显示 Token，只应看到 `notion_configured=true` 和 `state=needs_root_scope`。不要执行 `docker compose config` 或打印 `.env`，因为这些操作会把 secret 输出到终端。
+最后一条命令不显示 Token，只应看到 `notion_configured=true` 和 `state=needs_workspace_initialization`。不要执行 `docker compose config` 或打印 `.env`，因为这些操作会把 secret 输出到终端。
 
 可选阅读器投影：
 

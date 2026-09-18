@@ -31,7 +31,7 @@ def test_setup_status_does_not_return_secret(tmp_path):
         response = client.get("/api/v1/setup/status")
     assert response.status_code == 200
     data = response.json()
-    assert data["state"] == "needs_root_scope"
+    assert data["state"] == "needs_workspace_initialization"
     assert "test-token" not in response.text
     assert "setup-secret" not in response.text
 
@@ -59,6 +59,25 @@ def test_admin_console_manages_runtime_token_without_echoing_it(tmp_path):
         removed = client.delete("/api/v1/admin/notion-token")
         assert removed.status_code == 200
         assert not (tmp_path / "runtime" / "notion_token").exists()
+
+
+def test_workspace_initialization_is_idempotent(tmp_path):
+    with make_client(tmp_path) as client:
+        login = client.post("/api/v1/admin/session", json={"setup_token": "setup-secret"})
+        assert login.status_code == 200
+
+        first = client.post("/api/v1/sync/workspace")
+        assert first.status_code == 202
+        assert first.json()["kind"] == "initial"
+
+        second = client.post("/api/v1/sync/workspace")
+        assert second.status_code == 202
+        assert second.json()["id"] == first.json()["id"]
+
+        status = client.get("/api/v1/setup/status").json()
+        assert status["state"] == "ready"
+        assert status["workspace_initialized"] is True
+        assert status["root_count"] == 1
 
 
 def test_webhook_signature_is_verified_and_idempotent(tmp_path):

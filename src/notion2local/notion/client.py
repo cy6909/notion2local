@@ -123,6 +123,11 @@ class NotionClient:
             body["start_cursor"] = start_cursor
         return self.request("POST", "/search", json_body=body)
 
+    def iter_search(self) -> Iterator[dict[str, Any]]:
+        """Iterate over every object currently visible to the connection."""
+
+        yield from self.iter_paginated(lambda cursor: self.search(start_cursor=cursor))
+
     def iter_paginated(
         self,
         fetch_page: Any,

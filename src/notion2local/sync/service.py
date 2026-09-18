@@ -14,9 +14,12 @@ from ..notion.client import NotionAPIError, NotionClient
 from ..storage.raw import RawSnapshotStore
 from ..utils import content_hash, parse_iso_datetime, utc_now
 
+WORKSPACE_ROOT_ID = "__workspace__"
+
 
 @dataclass
 class SyncStats:
+    discovered: int = 0
     seen: int = 0
     changed: int = 0
     unchanged: int = 0
@@ -27,6 +30,7 @@ class SyncStats:
 
     def as_dict(self) -> dict[str, Any]:
         return {
+            "discovered": self.discovered,
             "seen": self.seen,
             "changed": self.changed,
             "unchanged": self.unchanged,
@@ -82,12 +86,15 @@ class SyncService:
 
         sync_started_at = utc_now()
         stats = SyncStats()
-        queue: deque[tuple[str, str, str | None, int | None, int]] = deque(
-            [("page", root.root_object_id, None, None, 0)]
-        )
         visited: set[tuple[str, str]] = set()
 
         try:
+            queue: deque[tuple[str, str, str | None, int | None, int]] = deque()
+            if root.root_object_id == WORKSPACE_ROOT_ID:
+                queue.extend(self._workspace_queue(stats))
+            else:
+                queue.append(("page", root.root_object_id, None, None, 0))
+
             while queue:
                 object_kind, object_id, parent_id, position, depth = queue.popleft()
                 visit_key = (object_kind, object_id)
@@ -145,6 +152,27 @@ class SyncService:
             run.finished_at = utc_now()
             session.flush()
             raise
+
+    def _workspace_queue(
+        self,
+        stats: SyncStats,
+    ) -> list[tuple[str, str, str | None, int | None, int]]:
+        """Seed a run with every page-like object visible to the Notion connection."""
+
+        queue: list[tuple[str, str, str | None, int | None, int]] = []
+        queued: set[tuple[str, str]] = set()
+        for candidate in self.client.iter_search():
+            object_kind = str(candidate.get("object") or candidate.get("type") or "")
+            object_id = str(candidate.get("id") or "")
+            if object_kind not in {"page", "database", "data_source"} or not object_id:
+                continue
+            visit_key = (object_kind, object_id)
+            if visit_key in queued:
+                continue
+            queued.add(visit_key)
+            stats.discovered += 1
+            queue.append((object_kind, object_id, None, None, 0))
+        return queue
 
     def sync_object(
         self,

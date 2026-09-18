@@ -113,10 +113,40 @@ services:
 
 volumes:
   postgres-data:
+    name: ${NOTION2LOCAL_POSTGRES_VOLUME_NAME:-notion2local-postgres-data-disk}
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${NOTION2LOCAL_DATA_ROOT:-/home/work_space/notion2local-data}/postgres
   raw-data:
+    name: ${NOTION2LOCAL_RAW_VOLUME_NAME:-notion2local-raw-data-disk}
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${NOTION2LOCAL_DATA_ROOT:-/home/work_space/notion2local-data}/raw
   blob-data:
+    name: ${NOTION2LOCAL_BLOB_VOLUME_NAME:-notion2local-blob-data-disk}
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${NOTION2LOCAL_DATA_ROOT:-/home/work_space/notion2local-data}/blobs
   config-data:
+    name: ${NOTION2LOCAL_CONFIG_VOLUME_NAME:-notion2local-config-data-disk}
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${NOTION2LOCAL_DATA_ROOT:-/home/work_space/notion2local-data}/config
   projection-data:
+    name: ${NOTION2LOCAL_PROJECTION_VOLUME_NAME:-notion2local-projection-data-disk}
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${NOTION2LOCAL_DATA_ROOT:-/home/work_space/notion2local-data}/projection
 
 networks:
   internal:

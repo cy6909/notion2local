@@ -94,36 +94,12 @@
             <div class="section-heading">
               <div>
                 <p class="eyebrow">02 / SCOPE</p>
-                <h3>同步范围</h3>
+                <h3>全工作区同步</h3>
               </div>
-              <span id="root-count" class="count-badge">0 个根页面</span>
+              <span id="root-count" class="count-badge">尚未初始化</span>
             </div>
-            <p class="panel-lead">根页面必须先在 Notion 的 Connections 菜单中共享给该连接。停用只会停止同步，不删除本地快照。</p>
-            <form id="root-form" class="root-form">
-              <div class="form-grid">
-                <div>
-                  <label for="root-name">显示名称</label>
-                  <input id="root-name" name="name" placeholder="例如：我的知识库" required>
-                </div>
-                <div>
-                  <label for="root-id">根页面链接或 ID</label>
-                  <input id="root-id" name="root_object_id" placeholder="粘贴 Notion 页面 URL 或 UUID" required>
-                </div>
-              </div>
-              <div class="form-grid form-grid-small">
-                <div>
-                  <label for="root-strategy">同步策略</label>
-                  <select id="root-strategy" name="strategy">
-                    <option value="balanced">均衡</option>
-                    <option value="fast">快速</option>
-                    <option value="deep">深度</option>
-                  </select>
-                </div>
-                <label class="check-row"><input id="include-comments" type="checkbox" checked><span>包含评论</span></label>
-                <label class="check-row"><input id="include-assets" type="checkbox" checked><span>保留附件</span></label>
-              </div>
-              <button class="button button-primary" type="submit">添加同步范围 <span>＋</span></button>
-            </form>
+            <p class="panel-lead">不需要逐页登记。初始化会调用 Notion Search 枚举当前连接可见的全部页面、数据库和数据源，再递归保存块、关系、评论和附件元数据。之后每日对账自动发现新增、修改、移动和删除。</p>
+            <button id="initialize-workspace-button" class="button button-primary" type="button">初始化全工作区 <span>↗</span></button>
             <p id="root-message" class="form-message" hidden></p>
             <div id="root-list" class="root-list" aria-live="polite"></div>
           </section>
@@ -139,7 +115,7 @@
             <div class="schedule-strip">
               <span class="schedule-time" id="reconcile-time">—</span>
               <div><strong>每日对账</strong><p id="schedule-timezone">—</p></div>
-              <span class="schedule-caption">增量优先 · 删除保留 · 失败可重试</span>
+              <span class="schedule-caption">全工作区 · 增量优先 · 删除保留 · 失败可重试</span>
             </div>
           </section>
 

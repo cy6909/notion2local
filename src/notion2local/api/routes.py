@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from ..models import EventInbox, GraphEdge, NotionObject, SyncRoot, SyncRun
 from ..notion.client import NotionAPIError, NotionClient, NotionNotConfigured
 from ..runtime_secrets import delete_secret_file, write_secret_file
+from ..sync.service import WORKSPACE_ROOT_ID
 from ..sync.tasks import enqueue_task
 from ..utils import utc_now
 from .schemas import (
@@ -72,11 +73,21 @@ def build_router() -> APIRouter:
     @router.get("/api/v1/setup/status")
     def setup_status(request: Request, session: Session = Depends(db_session)) -> dict[str, Any]:
         root_count = session.scalar(select(func.count()).select_from(SyncRoot)) or 0
+        workspace_initialized = bool(
+            session.scalar(
+                select(func.count())
+                .select_from(SyncRoot)
+                .where(
+                    SyncRoot.root_object_id == WORKSPACE_ROOT_ID,
+                    SyncRoot.status != "disabled",
+                )
+            )
+        )
         settings = request.app.state.settings
         if not settings.notion_token_value:
             state = "needs_notion_credential"
-        elif root_count == 0:
-            state = "needs_root_scope"
+        elif not workspace_initialized:
+            state = "needs_workspace_initialization"
         else:
             state = "ready"
         return {
@@ -90,6 +101,7 @@ def build_router() -> APIRouter:
             "sync_timezone": settings.sync_timezone,
             "reconcile_time": settings.reconcile_time,
             "root_count": root_count,
+            "workspace_initialized": workspace_initialized,
         }
 
     @router.put(
@@ -140,6 +152,57 @@ def build_router() -> APIRouter:
                 ) from exc
             raise HTTPException(status_code=502, detail="Notion API connection failed") from exc
         return {"ok": True, "message": "Notion connection accepted"}
+
+    @router.post(
+        "/api/v1/sync/workspace",
+        response_model=RunResponse,
+        status_code=status.HTTP_202_ACCEPTED,
+        dependencies=[Depends(require_setup_token)],
+    )
+    def enqueue_workspace_sync(request: Request, session: Session = Depends(db_session)) -> SyncRun:
+        """Initialize or reconcile every object visible to the Notion connection."""
+
+        if not request.app.state.settings.notion_token_value:
+            raise HTTPException(status_code=409, detail="Notion token is not configured")
+        root = session.scalar(select(SyncRoot).where(SyncRoot.root_object_id == WORKSPACE_ROOT_ID))
+        if root is None:
+            root = SyncRoot(
+                name="全工作区（自动发现）",
+                root_object_id=WORKSPACE_ROOT_ID,
+                status="configured",
+                strategy="deep",
+                timezone="Asia/Shanghai",
+                include_comments=True,
+                include_assets=True,
+            )
+            session.add(root)
+            session.flush()
+        elif root.status == "disabled":
+            root.status = "configured"
+
+        active_run = session.scalar(
+            select(SyncRun)
+            .where(
+                SyncRun.root_id == root.id,
+                SyncRun.status.in_({"queued", "running"}),
+            )
+            .order_by(SyncRun.created_at.desc())
+        )
+        if active_run:
+            return active_run
+
+        kind = "initial" if root.last_sync_at is None else "reconcile"
+        run = SyncRun(root_id=root.id, kind=kind, status="queued", stats_json={})
+        session.add(run)
+        session.flush()
+        enqueue_task(
+            session,
+            root_id=root.id,
+            task_type="root_sync",
+            idempotency_key=f"workspace:{root.id}:{run.id}",
+            payload={"kind": kind, "run_id": run.id},
+        )
+        return run
 
     @router.post(
         "/api/v1/sync/roots",
