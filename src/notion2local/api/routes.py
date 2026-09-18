@@ -73,16 +73,14 @@ def build_router() -> APIRouter:
     @router.get("/api/v1/setup/status")
     def setup_status(request: Request, session: Session = Depends(db_session)) -> dict[str, Any]:
         root_count = session.scalar(select(func.count()).select_from(SyncRoot)) or 0
-        workspace_initialized = bool(
-            session.scalar(
-                select(func.count())
-                .select_from(SyncRoot)
-                .where(
-                    SyncRoot.root_object_id == WORKSPACE_ROOT_ID,
-                    SyncRoot.status != "disabled",
-                )
+        workspace_root = session.scalar(
+            select(SyncRoot).where(
+                SyncRoot.root_object_id == WORKSPACE_ROOT_ID,
+                SyncRoot.status != "disabled",
             )
         )
+        workspace_configured = workspace_root is not None
+        workspace_initialized = bool(workspace_root and workspace_root.last_sync_at is not None)
         settings = request.app.state.settings
         if not settings.notion_token_value:
             state = "needs_notion_credential"
@@ -101,6 +99,7 @@ def build_router() -> APIRouter:
             "sync_timezone": settings.sync_timezone,
             "reconcile_time": settings.reconcile_time,
             "root_count": root_count,
+            "workspace_configured": workspace_configured,
             "workspace_initialized": workspace_initialized,
         }
 

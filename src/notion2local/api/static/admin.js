@@ -46,11 +46,12 @@ function renderStatus() {
   $("#reconcile-time").textContent = status.reconcile_time;
   $("#schedule-timezone").textContent = status.sync_timezone;
   const configured = status.notion_configured;
+  const workspaceConfigured = Boolean(status.workspace_configured);
   const workspaceInitialized = Boolean(status.workspace_initialized);
   const ready = configured && workspaceInitialized;
   $("#credential-state").textContent = configured ? `已配置 · ${status.notion_token_source}` : "未配置";
   $("#credential-state").className = `status-dot ${configured ? "status-on" : "status-off"}`;
-  $("#root-count").textContent = workspaceInitialized ? "全工作区已启用" : "尚未初始化";
+  $("#root-count").textContent = workspaceConfigured ? "全工作区已启用" : "尚未初始化";
   if (ready) setSignal("已就绪", "定时同步与本地归档已具备运行条件。", "on");
   else if (configured) setSignal("准备全量初始化", "Token 已保存，点击“初始化全工作区”开始发现全部可见内容。", "warn");
   else setSignal("等待 Notion 授权", "先保存一个只读 Internal Connection Token。", "warn");

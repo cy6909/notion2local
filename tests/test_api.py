@@ -75,8 +75,9 @@ def test_workspace_initialization_is_idempotent(tmp_path):
         assert second.json()["id"] == first.json()["id"]
 
         status = client.get("/api/v1/setup/status").json()
-        assert status["state"] == "ready"
-        assert status["workspace_initialized"] is True
+        assert status["state"] == "needs_workspace_initialization"
+        assert status["workspace_configured"] is True
+        assert status["workspace_initialized"] is False
         assert status["root_count"] == 1
 
 
