@@ -83,6 +83,11 @@ class SyncService:
             run.started_at = utc_now()
         root.status = "syncing"
         session.flush()
+        # Make the running state visible before the first network request. A
+        # workspace run can take a long time, and keeping this transaction
+        # uncommitted would leave the API showing a stale queued/configured
+        # state while also retaining database locks unnecessarily.
+        session.commit()
 
         sync_started_at = utc_now()
         stats = SyncStats()
@@ -95,6 +100,10 @@ class SyncService:
             else:
                 queue.append(("page", root.root_object_id, None, None, 0))
 
+            run.stats_json = stats.as_dict()
+            session.commit()
+
+            processed_objects = 0
             while queue:
                 object_kind, object_id, parent_id, position, depth = queue.popleft()
                 visit_key = (object_kind, object_id)
@@ -129,6 +138,10 @@ class SyncService:
                             "error": self._safe_error(exc),
                         }
                     )
+                processed_objects += 1
+                if processed_objects % self.settings.sync_checkpoint_objects == 0:
+                    run.stats_json = stats.as_dict()
+                    session.commit()
 
             if not stats.errors:
                 stats.tombstoned += self._mark_missing(

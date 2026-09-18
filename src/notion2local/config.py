@@ -4,6 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from pydantic import SecretStr
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .runtime_secrets import read_secret_file
@@ -39,6 +40,7 @@ class Settings(BaseSettings):
     sync_poll_seconds: int = 15
     http_timeout_seconds: float = 30.0
     max_sync_depth: int = 100
+    sync_checkpoint_objects: int = Field(default=50, ge=1, le=10000)
 
     @property
     def notion_token_value(self) -> str | None:
