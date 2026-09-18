@@ -40,7 +40,7 @@ def test_admin_console_manages_runtime_token_without_echoing_it(tmp_path):
     with make_client(tmp_path) as client:
         page = client.get("/admin")
         assert page.status_code == 200
-        assert "可视化初始化与管理控制台" in page.text
+        assert "Notion Token" in page.text
 
         invalid = client.post("/api/v1/admin/session", json={"setup_token": "wrong"})
         assert invalid.status_code == 401
