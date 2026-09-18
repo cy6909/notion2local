@@ -34,6 +34,38 @@ docker compose ps
 - `/docs`：API 文档。
 - `/api/v1/setup/status`：不泄露 secret 的配置状态。
 
+## 在 10.89.2.39 注入 Notion Token
+
+当前阶段使用 Notion Internal Connection Token。先在 Notion 创建一个只读连接，并把需要归档的根页面（以及其中的数据库）通过页面右上角菜单的 Connections/连接共享给该连接。Notion 连接默认只对显式共享的页面可见，官方步骤见 [Create integrations with the Notion API](https://www.notion.com/en-gb/help/create-integrations-with-the-notion-api)。
+
+然后在 39 机器的 SSH 终端执行以下命令。Token 只在交互式输入和短暂的子进程环境中出现，不要把它粘贴到聊天、Git、Notion、URL 或命令参数中：
+
+```bash
+cd /opt/notion2local
+read -rsp 'Notion token: ' token; printf '\n'
+NOTION_TOKEN="$token" python3 - <<'PY'
+from pathlib import Path
+import os
+
+path = Path('.env')
+token = os.environ['NOTION_TOKEN'].strip()
+lines = path.read_text(encoding='utf-8').splitlines()
+for index, line in enumerate(lines):
+    if line.startswith('NOTION_TOKEN='):
+        lines[index] = f'NOTION_TOKEN={token}'
+        break
+else:
+    lines.append(f'NOTION_TOKEN={token}')
+path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+PY
+unset token NOTION_TOKEN
+chmod 600 .env
+docker compose up -d --force-recreate web worker scheduler
+curl -fsS http://127.0.0.1:8080/api/v1/setup/status
+```
+
+最后一条命令不显示 Token，只应看到 `notion_configured=true` 和 `state=needs_root_scope`。不要执行 `docker compose config` 或打印 `.env`，因为这些操作会把 secret 输出到终端。
+
 可选阅读器投影：
 
 ```bash

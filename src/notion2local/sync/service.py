@@ -21,6 +21,8 @@ class SyncStats:
     changed: int = 0
     unchanged: int = 0
     edges: int = 0
+    rows: int = 0
+    tombstoned: int = 0
     errors: list[dict[str, Any]] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -29,6 +31,8 @@ class SyncStats:
             "changed": self.changed,
             "unchanged": self.unchanged,
             "edges": self.edges,
+            "rows": self.rows,
+            "tombstoned": self.tombstoned,
             "errors": self.errors,
         }
 
@@ -76,6 +80,7 @@ class SyncService:
         root.status = "syncing"
         session.flush()
 
+        sync_started_at = utc_now()
         stats = SyncStats()
         queue: deque[tuple[str, str, str | None, int | None, int]] = deque(
             [("page", root.root_object_id, None, None, 0)]
@@ -118,6 +123,13 @@ class SyncService:
                         }
                     )
 
+            if not stats.errors:
+                stats.tombstoned += self._mark_missing(
+                    session,
+                    root,
+                    sync_started_at,
+                    include_comments=root.include_comments,
+                )
             root.last_sync_at = utc_now()
             root.status = "degraded" if stats.errors else "synced"
             run.status = "partial" if stats.errors else "succeeded"
@@ -182,6 +194,37 @@ class SyncService:
                 stats=stats,
             )
         return stats
+
+    def tombstone_object(
+        self,
+        session: Session,
+        root_id: str,
+        object_id: str,
+        object_kind: str = "page",
+    ) -> NotionObject:
+        """Preserve a deletion event without erasing the last raw snapshot."""
+
+        root = session.get(SyncRoot, root_id)
+        if root is None:
+            raise ValueError(f"sync root not found: {root_id}")
+        record_key = self.record_key(object_kind, object_id)
+        current = session.get(NotionObject, record_key)
+        if current is None:
+            current = NotionObject(
+                record_key=record_key,
+                object_id=object_id,
+                object_type=object_kind,
+                root_id=root.id,
+            )
+            session.add(current)
+        current.root_id = root.id
+        current.in_trash = True
+        current.archived = True
+        current.sync_state = "trashed"
+        current.deleted_at = utc_now()
+        current.last_seen_at = utc_now()
+        session.flush()
+        return current
 
     def _fetch(self, object_kind: str, object_id: str) -> dict[str, Any]:
         def call() -> dict[str, Any]:
@@ -333,6 +376,21 @@ class SyncService:
                 elif child_type == "child_database":
                     queue.append(("database", child_id, object_id, position, depth + 1))
 
+        if object_kind == "database":
+            for data_source in payload.get("data_sources") or []:
+                if not isinstance(data_source, dict):
+                    continue
+                data_source_id = str(data_source.get("id") or "")
+                if data_source_id:
+                    queue.append(("data_source", data_source_id, object_id, None, depth + 1))
+
+        if object_kind == "data_source":
+            for position, row in enumerate(self.client.iter_data_source_rows(object_id)):
+                row_id = str(row.get("id") or "")
+                if row_id:
+                    queue.append(("page", row_id, object_id, position, depth + 1))
+                    stats.rows += 1
+
         if include_comments and object_id and object_kind in {"page", "block"}:
             for comment in self.client.iter_comments(object_id):
                 comment_id = str(comment.get("id") or "")
@@ -402,6 +460,44 @@ class SyncService:
                     if value.get("id"):
                         edges.append(("relation", str(value["id"]), {"property": name}))
         return edges
+
+    @staticmethod
+    def _mark_missing(
+        session: Session,
+        root: SyncRoot,
+        sync_started_at: Any,
+        *,
+        include_comments: bool,
+    ) -> int:
+        """Mark objects omitted by a successful reconciliation as missing, never delete them."""
+
+        query = select(NotionObject).where(
+            NotionObject.root_id == root.id,
+            NotionObject.record_key != SyncService.record_key("page", root.root_object_id),
+            NotionObject.sync_state.not_in({"trashed", "missing"}),
+            (NotionObject.last_seen_at < sync_started_at) | NotionObject.last_seen_at.is_(None),
+        )
+        if not include_comments:
+            query = query.where(NotionObject.object_type != "comment")
+        missing = list(session.scalars(query).all())
+        if not missing:
+            return 0
+        keys = {item.record_key for item in missing}
+        for item in missing:
+            item.in_trash = True
+            item.sync_state = "missing"
+            item.deleted_at = utc_now()
+        edges = session.scalars(
+            select(GraphEdge).where(
+                GraphEdge.root_id == root.id,
+                GraphEdge.is_current.is_(True),
+                (GraphEdge.from_object_key.in_(keys) | GraphEdge.to_object_key.in_(keys)),
+            )
+        ).all()
+        for edge in edges:
+            edge.is_current = False
+            edge.ended_at = utc_now()
+        return len(missing)
 
     @staticmethod
     def _upsert_edge(

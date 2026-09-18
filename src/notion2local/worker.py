@@ -22,6 +22,7 @@ def process_one(database: Database, service: SyncService) -> bool:
         root_id = task.root_id
         object_id = task.object_id
         object_kind = str(task.payload.get("object_kind", "page"))
+        event_type = str(task.payload.get("event_type", ""))
 
     try:
         with database.session() as work_session:
@@ -33,7 +34,10 @@ def process_one(database: Database, service: SyncService) -> bool:
                     run_id=task.payload.get("run_id"),
                 )
             elif task_type == "object_sync" and object_id:
-                service.sync_object(work_session, root_id, object_id, object_kind)
+                if "deleted" in event_type:
+                    service.tombstone_object(work_session, root_id, object_id, object_kind)
+                else:
+                    service.sync_object(work_session, root_id, object_id, object_kind)
             else:
                 raise ValueError(f"unsupported task type or missing object_id: {task_type}")
         with database.session() as session:
