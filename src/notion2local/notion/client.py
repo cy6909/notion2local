@@ -127,8 +127,7 @@ class NotionClient:
         cursor: str | None = None
         while True:
             response = fetch_page(cursor)
-            for result in response.get("results", []):
-                yield result
+            yield from response.get("results", [])
             if not response.get("has_more"):
                 return
             next_cursor = response.get("next_cursor")
