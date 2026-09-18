@@ -1,4 +1,6 @@
-const state = { authenticated: false, status: null, roots: [] };
+const state = { authenticated: false, status: null, roots: [], runs: {} };
+let refreshTimer = null;
+let loading = false;
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -63,11 +65,25 @@ function renderRoots() {
   list.innerHTML = state.roots.map((root) => {
     const disabled = root.status === "disabled";
     const workspace = root.root_object_id === "__workspace__";
+    const run = state.runs[root.id];
+    const stats = run?.stats_json || {};
+    let activity = disabled ? "已停用" : root.status;
+    if (run?.status === "queued") {
+      activity = "等待同步任务";
+    } else if (run?.status === "running") {
+      activity = stats.discovered
+        ? `同步中 · 已处理 ${stats.seen || 0}/${stats.discovered} 个对象`
+        : "同步中 · 正在发现对象";
+    } else if (run?.status === "succeeded" || run?.status === "partial") {
+      activity = `最近${run.status === "succeeded" ? "成功" : "部分完成"} · 变更 ${stats.changed || 0} · 未变化 ${stats.unchanged || 0}`;
+    } else if (run?.status === "failed") {
+      activity = "最近同步失败 · 可重试";
+    }
     return `<article class="root-item">
       <div>
         <strong>${workspace ? "全工作区（自动发现）" : escapeHtml(root.name)}</strong>
         <small>${workspace ? "Notion Search · 所有当前可见对象" : escapeHtml(root.root_object_id)}</small>
-        <div class="root-item-meta"><span>${disabled ? "已停用" : escapeHtml(root.status)}</span><span>·</span><span>上次同步：${escapeHtml(formatDate(root.last_sync_at))}</span></div>
+        <div class="root-item-meta"><span>${escapeHtml(activity)}</span><span>·</span><span>上次完成：${escapeHtml(formatDate(root.last_sync_at))}</span></div>
       </div>
       <div class="root-item-actions">
         ${disabled ? "" : `<button class="mini-button" data-action="sync" data-root="${escapeHtml(root.id)}">立即同步</button><button class="mini-button danger" data-action="disable" data-root="${escapeHtml(root.id)}">停用</button>`}
@@ -81,16 +97,32 @@ function escapeHtml(value) {
 }
 
 async function loadConsole() {
-  state.status = await request("/api/v1/setup/status");
-  state.roots = await request("/api/v1/sync/roots");
-  renderStatus();
-  renderRoots();
+  if (loading) return;
+  loading = true;
+  try {
+    state.status = await request("/api/v1/setup/status");
+    state.roots = await request("/api/v1/sync/roots");
+    const entries = await Promise.all(state.roots.map(async (root) => {
+      const runs = await request(`/api/v1/sync/runs?root_id=${encodeURIComponent(root.id)}&limit=1`);
+      return [root.id, runs[0] || null];
+    }));
+    state.runs = Object.fromEntries(entries);
+    renderStatus();
+    renderRoots();
+  } finally {
+    loading = false;
+  }
 }
 
 function showConsole() {
   state.authenticated = true;
   $("#login-panel").hidden = true;
   $("#console-panel").hidden = false;
+  if (!refreshTimer) {
+    refreshTimer = window.setInterval(() => {
+      if (state.authenticated) loadConsole().catch(() => {});
+    }, 5000);
+  }
 }
 
 async function tryExistingSession() {
