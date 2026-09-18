@@ -18,7 +18,13 @@ def json_bytes(value: Any) -> bytes:
 
 
 def content_hash(value: Any) -> str:
-    return hashlib.sha256(json_bytes(value)).hexdigest()
+    # The Notion REST API adds a fresh transport-level request_id to many
+    # retrieve responses. It is useful metadata to preserve in the raw
+    # snapshot, but it must not make an otherwise unchanged object look new.
+    hash_value = value
+    if isinstance(value, dict) and "request_id" in value:
+        hash_value = {key: item for key, item in value.items() if key != "request_id"}
+    return hashlib.sha256(json_bytes(hash_value)).hexdigest()
 
 
 def safe_object_id(value: str) -> str:
