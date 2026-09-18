@@ -10,7 +10,6 @@ from .db import Database
 from .models import SyncRoot
 from .sync.tasks import enqueue_task
 
-
 logging.basicConfig(level=get_settings().log_level, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
 

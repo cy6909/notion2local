@@ -8,7 +8,6 @@ from .db import Database
 from .sync.service import SyncService
 from .sync.tasks import claim_next_task, mark_task_failed, mark_task_succeeded
 
-
 logging.basicConfig(level=get_settings().log_level, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
 

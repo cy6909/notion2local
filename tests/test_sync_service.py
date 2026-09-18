@@ -7,7 +7,6 @@ from notion2local.db import Database
 from notion2local.models import GraphEdge, NotionObject, ObjectSnapshot, SyncRoot
 from notion2local.sync.service import SyncService
 
-
 ROOT_ID = "11111111-1111-1111-1111-111111111111"
 BLOCK_ID = "22222222-2222-2222-2222-222222222222"
 
