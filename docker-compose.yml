@@ -1,0 +1,114 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-notion2local}
+      POSTGRES_USER: ${POSTGRES_USER:-notion2local}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [internal]
+
+  web:
+    build: .
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://notion2local:change-me@db:5432/notion2local}
+      DB_AUTO_CREATE: ${DB_AUTO_CREATE:-true}
+      APP_ENV: ${APP_ENV:-production}
+      APP_NAME: ${APP_NAME:-notion2local}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      RAW_STORAGE_PATH: /data/raw
+      BLOB_STORAGE_PATH: /data/blobs
+      NOTION_API_VERSION: ${NOTION_API_VERSION:-2026-03-11}
+      NOTION_TOKEN: ${NOTION_TOKEN:-}
+      NOTION_WEBHOOK_SECRET: ${NOTION_WEBHOOK_SECRET:-}
+      SETUP_TOKEN: ${SETUP_TOKEN:-}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      SYNC_TIMEZONE: ${SYNC_TIMEZONE:-Asia/Shanghai}
+      RECONCILE_TIME: ${RECONCILE_TIME:-00:05}
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    volumes:
+      - raw-data:/data/raw
+      - blob-data:/data/blobs
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [internal]
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: ["python", "-m", "notion2local.worker"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://notion2local:change-me@db:5432/notion2local}
+      DB_AUTO_CREATE: ${DB_AUTO_CREATE:-true}
+      APP_ENV: ${APP_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      RAW_STORAGE_PATH: /data/raw
+      BLOB_STORAGE_PATH: /data/blobs
+      NOTION_API_VERSION: ${NOTION_API_VERSION:-2026-03-11}
+      NOTION_TOKEN: ${NOTION_TOKEN:-}
+      NOTION_WEBHOOK_SECRET: ${NOTION_WEBHOOK_SECRET:-}
+      SYNC_POLL_SECONDS: ${SYNC_POLL_SECONDS:-15}
+    volumes:
+      - raw-data:/data/raw
+      - blob-data:/data/blobs
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [internal]
+
+  scheduler:
+    build: .
+    restart: unless-stopped
+    command: ["python", "-m", "notion2local.scheduler"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://notion2local:change-me@db:5432/notion2local}
+      DB_AUTO_CREATE: ${DB_AUTO_CREATE:-true}
+      APP_ENV: ${APP_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      SYNC_TIMEZONE: ${SYNC_TIMEZONE:-Asia/Shanghai}
+      RECONCILE_TIME: ${RECONCILE_TIME:-00:05}
+      SYNC_POLL_SECONDS: ${SYNC_POLL_SECONDS:-30}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [internal]
+
+  viewer:
+    image: ${TRILIUM_IMAGE:-triliumnext/notes:latest}
+    profiles: ["viewer"]
+    restart: unless-stopped
+    ports:
+      - "${TRILIUM_PORT:-8081}:8080"
+    volumes:
+      - projection-data:/home/node/trilium-data
+    networks: [internal]
+
+  cloudflared:
+    image: cloudflare/cloudflared:2025.9.1
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "--url", "http://web:8080"]
+    depends_on:
+      web:
+        condition: service_started
+    networks: [internal]
+
+volumes:
+  postgres-data:
+  raw-data:
+  blob-data:
+  projection-data:
+
+networks:
+  internal:
+    driver: bridge
