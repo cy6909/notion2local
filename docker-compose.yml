@@ -47,6 +47,8 @@ services:
     build: .
     restart: unless-stopped
     command: ["python", "-m", "notion2local.worker"]
+    healthcheck:
+      disable: true
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://notion2local:change-me@db:5432/notion2local}
       DB_AUTO_CREATE: ${DB_AUTO_CREATE:-true}
@@ -70,6 +72,8 @@ services:
     build: .
     restart: unless-stopped
     command: ["python", "-m", "notion2local.scheduler"]
+    healthcheck:
+      disable: true
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://notion2local:change-me@db:5432/notion2local}
       DB_AUTO_CREATE: ${DB_AUTO_CREATE:-true}
