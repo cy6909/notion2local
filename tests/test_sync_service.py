@@ -173,6 +173,7 @@ def test_sync_crawls_data_source_rows(tmp_path: Path):
         assert run.status == "succeeded"
         assert run.stats_json["rows"] == 1
         assert session.get(NotionObject, f"page:{ROW_ID}") is not None
+        assert session.get(NotionObject, f"database:{DATABASE_ID}").title == "Notes"
 
     service.close()
     database.dispose()

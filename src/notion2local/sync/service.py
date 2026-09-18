@@ -434,15 +434,36 @@ class SyncService:
             properties = payload.get("properties") or {}
             for prop in properties.values():
                 if prop.get("type") == "title":
-                    return "".join(item.get("plain_text", "") for item in prop.get("title", [])) or None
+                    return SyncService._rich_text_to_text(prop.get("title"))
         if payload.get("object") == "block":
             block_type = payload.get("type")
             value = payload.get(block_type, {})
             if isinstance(value, dict) and value.get("rich_text"):
-                return "".join(item.get("plain_text", "") for item in value["rich_text"]) or None
+                return SyncService._rich_text_to_text(value["rich_text"])
             if isinstance(value, dict) and value.get("title"):
-                return str(value["title"])
-        return payload.get("name") or payload.get("title")
+                return SyncService._rich_text_to_text(value["title"])
+        return SyncService._rich_text_to_text(payload.get("name") or payload.get("title"))
+
+    @staticmethod
+    def _rich_text_to_text(value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value or None
+        if isinstance(value, list):
+            parts: list[str] = []
+            for item in value:
+                if isinstance(item, str):
+                    parts.append(item)
+                elif isinstance(item, dict):
+                    text = item.get("plain_text")
+                    if text is None:
+                        text_value = item.get("text")
+                        text = text_value.get("content") if isinstance(text_value, dict) else text_value
+                    if text is not None:
+                        parts.append(str(text))
+            return "".join(parts) or None
+        return str(value)
 
     @staticmethod
     def _relation_edges(payload: dict[str, Any]) -> list[tuple[str, str, dict[str, Any]]]:
