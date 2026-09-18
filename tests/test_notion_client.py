@@ -1,19 +1,26 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import httpx
 
 from notion2local.config import Settings
 from notion2local.notion.client import NotionClient
 
 
-def test_client_sends_version_and_auth_headers():
+def test_client_sends_version_and_auth_headers(tmp_path: Path):
     captured = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         captured.update(dict(request.headers))
         return httpx.Response(200, json={"object": "page", "id": "p1"})
 
-    settings = Settings(notion_token="secret-token", notion_api_version="2026-03-11")
+    settings = Settings(
+        notion_token="secret-token",
+        notion_token_file=tmp_path / "notion_token",
+        notion_api_version="2026-03-11",
+    )
     client = NotionClient(settings, client=httpx.Client(transport=httpx.MockTransport(handler)))
     response = client.retrieve_page("p1")
 
@@ -22,11 +29,11 @@ def test_client_sends_version_and_auth_headers():
     assert captured["notion-version"] == "2026-03-11"
 
 
-def test_iter_search_follows_all_pages():
+def test_iter_search_follows_all_pages(tmp_path: Path):
     calls = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        calls.append(request.url.params.get("start_cursor"))
+        calls.append(json.loads(request.content).get("start_cursor"))
         if len(calls) == 1:
             return httpx.Response(
                 200,
@@ -41,7 +48,7 @@ def test_iter_search_follows_all_pages():
             json={"results": [{"object": "data_source", "id": "ds1"}], "has_more": False},
         )
 
-    settings = Settings(notion_token="secret-token")
+    settings = Settings(notion_token="secret-token", notion_token_file=tmp_path / "notion_token")
     client = NotionClient(settings, client=httpx.Client(transport=httpx.MockTransport(handler)))
 
     assert list(client.iter_search()) == [
