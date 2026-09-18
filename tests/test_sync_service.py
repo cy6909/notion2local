@@ -127,6 +127,14 @@ class FakeNotionClient:
         yield from self.pages.values()
 
 
+class FakeTrashedPageClient(FakeNotionClient):
+    def retrieve_page(self, object_id):
+        return {**super().retrieve_page(object_id), "in_trash": True, "archived": True}
+
+    def iter_block_children(self, object_id):
+        raise AssertionError("trashed pages must not fetch hidden children")
+
+
 def test_sync_is_idempotent_and_preserves_raw_history(tmp_path: Path):
     settings = Settings(
         database_url=f"sqlite:///{tmp_path / 'test.db'}",
@@ -222,6 +230,34 @@ def test_workspace_sync_discovers_all_search_results(tmp_path: Path):
         assert second.status == "succeeded"
         assert second.stats_json["unchanged"] == 3
         assert session.query(ObjectSnapshot).count() == 3
+
+    service.close()
+    database.dispose()
+
+
+def test_trashed_page_preserves_state_without_hidden_child_error(tmp_path: Path):
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'trashed.db'}",
+        raw_storage_path=tmp_path / "raw",
+        blob_storage_path=tmp_path / "blobs",
+        notion_token="test-token",
+        db_auto_create=True,
+    )
+    database = Database(settings)
+    database.create_all()
+    service = SyncService(settings, client=FakeTrashedPageClient())
+
+    with database.session() as session:
+        root = SyncRoot(name="Trashed", root_object_id=ROOT_ID)
+        session.add(root)
+        session.flush()
+        root_pk = root.id
+
+    with database.session() as session:
+        run = service.sync_root(session, root_pk)
+        assert run.status == "succeeded"
+        assert run.stats_json["errors"] == []
+        assert session.get(NotionObject, f"page:{ROOT_ID}").sync_state == "trashed"
 
     service.close()
     database.dispose()

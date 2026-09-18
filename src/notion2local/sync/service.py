@@ -401,6 +401,11 @@ class SyncService:
         include_comments: bool,
         stats: SyncStats,
     ) -> None:
+        if bool(payload.get("in_trash")) or bool(payload.get("archived")):
+            # Notion hides the children endpoint for trashed/archived pages.
+            # Keep the last local child snapshots and record the page state
+            # instead of turning an expected 404 into a partial run.
+            return
         object_kind = str(payload.get("object") or payload.get("type") or "")
         object_id = str(payload.get("id") or "")
         if object_kind == "page" or (
