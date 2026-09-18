@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1020">
+  <title>Archive Console · Notion2Local</title>
+  <link rel="stylesheet" href="/admin-assets.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="返回 Notion2Local 首页">
+        <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+        <span>Notion2Local</span>
+      </a>
+      <div class="topbar-meta">
+        <span class="eyebrow">ARCHIVE CONSOLE / 01</span>
+        <span id="connection-pill" class="pill pill-muted">未连接</span>
+      </div>
+    </header>
+
+    <main class="main-grid">
+      <section class="intro-column">
+        <p class="eyebrow accent">LOCAL MIRROR CONTROL</p>
+        <h1>让远端笔记<br><em>有一份可恢复的底稿。</em></h1>
+        <p class="intro-copy">在这里完成一次授权，之后由本地服务负责留存、校验和定时同步。原始内容只读保存，Token 不会出现在页面回显、浏览器存储或 Notion 文档中。</p>
+
+        <div class="signal-card">
+          <div class="signal-line"><span></span></div>
+          <div class="signal-copy">
+            <span class="eyebrow">CURRENT SIGNAL</span>
+            <strong id="signal-title">正在读取服务状态</strong>
+            <p id="signal-detail">控制台会把下一步需要的动作放在这里。</p>
+          </div>
+        </div>
+
+        <div class="trust-note">
+          <span class="note-icon">⌁</span>
+          <p><strong>安全边界</strong><br>管理密钥只用于建立短时控制台会话；Notion Token 保存到本地持久化 secret 文件，并由同步服务按需读取。</p>
+        </div>
+      </section>
+
+      <section class="workspace-column">
+        <div id="login-panel" class="panel login-panel">
+          <div class="panel-kicker"><span>ACCESS</span><span>01 / 04</span></div>
+          <h2>先打开控制台</h2>
+          <p class="panel-lead">输入部署时设置的管理密钥。它不是 Notion Token，只负责保护本地管理操作。</p>
+          <form id="login-form" class="stack-form">
+            <label for="setup-token">管理密钥</label>
+            <div class="secret-input">
+              <input id="setup-token" name="setup_token" type="password" autocomplete="current-password" placeholder="输入 SETUP_TOKEN" required>
+              <button type="button" class="icon-button" data-toggle="setup-token" aria-label="显示或隐藏管理密钥">显示</button>
+            </div>
+            <button class="button button-primary" type="submit">进入控制台 <span>↗</span></button>
+          </form>
+          <p id="login-error" class="form-message is-error" hidden></p>
+        </div>
+
+        <div id="console-panel" class="console-panel" hidden>
+          <div class="console-header">
+            <div>
+              <div class="panel-kicker"><span>CONTROL ROOM</span><span id="api-version">API —</span></div>
+              <h2>运行配置</h2>
+            </div>
+            <button id="logout-button" class="button button-quiet" type="button">退出会话</button>
+          </div>
+
+          <section class="panel credential-panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">01 / CREDENTIAL</p>
+                <h3>Notion 连接</h3>
+              </div>
+              <span id="credential-state" class="status-dot status-off">未配置</span>
+            </div>
+            <p class="panel-lead">粘贴 Internal Connection Token。保存后不会再次显示原文，只展示来源和连接结果。</p>
+            <form id="token-form" class="stack-form">
+              <label for="notion-token">Notion Token</label>
+              <div class="secret-input">
+                <input id="notion-token" name="token" type="password" autocomplete="new-password" placeholder="输入后立即保存，不会回显">
+                <button type="button" class="icon-button" data-toggle="notion-token" aria-label="显示或隐藏 Notion Token">显示</button>
+              </div>
+              <div class="button-row">
+                <button class="button button-primary" type="submit">保存 Token</button>
+                <button id="test-token-button" class="button button-secondary" type="button">测试连接</button>
+                <button id="clear-token-button" class="button button-danger" type="button">移除本地 Token</button>
+              </div>
+            </form>
+            <p id="token-message" class="form-message" hidden></p>
+          </section>
+
+          <section class="panel scope-panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">02 / SCOPE</p>
+                <h3>同步范围</h3>
+              </div>
+              <span id="root-count" class="count-badge">0 个根页面</span>
+            </div>
+            <p class="panel-lead">根页面必须先在 Notion 的 Connections 菜单中共享给该连接。停用只会停止同步，不删除本地快照。</p>
+            <form id="root-form" class="root-form">
+              <div class="form-grid">
+                <div>
+                  <label for="root-name">显示名称</label>
+                  <input id="root-name" name="name" placeholder="例如：我的知识库" required>
+                </div>
+                <div>
+                  <label for="root-id">根页面链接或 ID</label>
+                  <input id="root-id" name="root_object_id" placeholder="粘贴 Notion 页面 URL 或 UUID" required>
+                </div>
+              </div>
+              <div class="form-grid form-grid-small">
+                <div>
+                  <label for="root-strategy">同步策略</label>
+                  <select id="root-strategy" name="strategy">
+                    <option value="balanced">均衡</option>
+                    <option value="fast">快速</option>
+                    <option value="deep">深度</option>
+                  </select>
+                </div>
+                <label class="check-row"><input id="include-comments" type="checkbox" checked><span>包含评论</span></label>
+                <label class="check-row"><input id="include-assets" type="checkbox" checked><span>保留附件</span></label>
+              </div>
+              <button class="button button-primary" type="submit">添加同步范围 <span>＋</span></button>
+            </form>
+            <p id="root-message" class="form-message" hidden></p>
+            <div id="root-list" class="root-list" aria-live="polite"></div>
+          </section>
+
+          <section class="panel schedule-panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">03 / RHYTHM</p>
+                <h3>自动同步节奏</h3>
+              </div>
+              <span class="status-dot status-on">运行中</span>
+            </div>
+            <div class="schedule-strip">
+              <span class="schedule-time" id="reconcile-time">—</span>
+              <div><strong>每日对账</strong><p id="schedule-timezone">—</p></div>
+              <span class="schedule-caption">增量优先 · 删除保留 · 失败可重试</span>
+            </div>
+          </section>
+
+          <section class="panel footer-panel">
+            <a href="/" class="text-link">查看服务首页</a>
+            <a href="/docs" class="text-link">打开 API 文档</a>
+            <span id="console-message" class="form-message" hidden></span>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="/admin-assets.js" defer></script>
+</body>
+</html>

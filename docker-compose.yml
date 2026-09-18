@@ -27,6 +27,7 @@ services:
       RAW_STORAGE_PATH: /data/raw
       BLOB_STORAGE_PATH: /data/blobs
       NOTION_API_VERSION: ${NOTION_API_VERSION:-2026-03-11}
+      NOTION_TOKEN_FILE: /data/config/notion_token
       NOTION_TOKEN: ${NOTION_TOKEN:-}
       NOTION_WEBHOOK_SECRET: ${NOTION_WEBHOOK_SECRET:-}
       SETUP_TOKEN: ${SETUP_TOKEN:-}
@@ -38,6 +39,7 @@ services:
     volumes:
       - raw-data:/data/raw
       - blob-data:/data/blobs
+      - config-data:/data/config
     depends_on:
       db:
         condition: service_healthy
@@ -57,12 +59,14 @@ services:
       RAW_STORAGE_PATH: /data/raw
       BLOB_STORAGE_PATH: /data/blobs
       NOTION_API_VERSION: ${NOTION_API_VERSION:-2026-03-11}
+      NOTION_TOKEN_FILE: /data/config/notion_token
       NOTION_TOKEN: ${NOTION_TOKEN:-}
       NOTION_WEBHOOK_SECRET: ${NOTION_WEBHOOK_SECRET:-}
       SYNC_POLL_SECONDS: ${SYNC_POLL_SECONDS:-15}
     volumes:
       - raw-data:/data/raw
       - blob-data:/data/blobs
+      - config-data:/data/config
     depends_on:
       db:
         condition: service_healthy
@@ -111,6 +115,7 @@ volumes:
   postgres-data:
   raw-data:
   blob-data:
+  config-data:
   projection-data:
 
 networks:

@@ -13,7 +13,7 @@ COPY src ./src
 RUN python -m pip install --no-cache-dir .
 
 RUN useradd --create-home --uid 10001 appuser \
-    && mkdir -p /data/raw /data/blobs \
+    && mkdir -p /data/raw /data/blobs /data/config \
     && chown -R appuser:appuser /app /data
 
 USER appuser

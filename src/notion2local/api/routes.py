@@ -6,14 +6,30 @@ import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models import EventInbox, GraphEdge, NotionObject, SyncRoot, SyncRun
+from ..notion.client import NotionAPIError, NotionClient, NotionNotConfigured
+from ..runtime_secrets import delete_secret_file, write_secret_file
 from ..sync.tasks import enqueue_task
 from ..utils import utc_now
-from .schemas import ObjectDetail, ObjectSummary, RootCreate, RootResponse, RunResponse
-from .security import require_setup_token
+from .schemas import (
+    AdminLogin,
+    NotionTokenUpdate,
+    ObjectDetail,
+    ObjectSummary,
+    RootCreate,
+    RootResponse,
+    RunResponse,
+)
+from .security import (
+    ADMIN_SESSION_COOKIE,
+    admin_session_value,
+    require_setup_token,
+    setup_token_is_valid,
+)
 
 
 def build_router() -> APIRouter:
@@ -22,6 +38,36 @@ def build_router() -> APIRouter:
     def db_session(request: Request):
         with request.app.state.database.session() as session:
             yield session
+
+    @router.post("/api/v1/admin/session")
+    def create_admin_session(body: AdminLogin, request: Request) -> JSONResponse:
+        if not setup_token_is_valid(request, body.setup_token.get_secret_value()):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="valid setup token required",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        response = JSONResponse({"authenticated": True})
+        response.set_cookie(
+            ADMIN_SESSION_COOKIE,
+            admin_session_value(request.app.state.settings.setup_token_value),
+            max_age=8 * 60 * 60,
+            httponly=True,
+            secure=request.url.scheme == "https",
+            samesite="strict",
+            path="/",
+        )
+        return response
+
+    @router.get("/api/v1/admin/session")
+    def get_admin_session(request: Request) -> dict[str, bool]:
+        return {"authenticated": _admin_session_is_valid(request)}
+
+    @router.delete("/api/v1/admin/session")
+    def delete_admin_session() -> Response:
+        response = Response(status_code=status.HTTP_204_NO_CONTENT)
+        response.delete_cookie(ADMIN_SESSION_COOKIE, path="/")
+        return response
 
     @router.get("/api/v1/setup/status")
     def setup_status(request: Request, session: Session = Depends(db_session)) -> dict[str, Any]:
@@ -38,12 +84,62 @@ def build_router() -> APIRouter:
             "service": settings.app_name,
             "api_version": settings.notion_api_version,
             "notion_configured": bool(settings.notion_token_value),
+            "notion_token_source": settings.notion_token_source,
             "setup_token_configured": bool(settings.setup_token_value),
             "public_base_url_configured": bool(settings.public_base_url),
             "sync_timezone": settings.sync_timezone,
             "reconcile_time": settings.reconcile_time,
             "root_count": root_count,
         }
+
+    @router.put(
+        "/api/v1/admin/notion-token",
+        dependencies=[Depends(require_setup_token)],
+    )
+    def update_notion_token(body: NotionTokenUpdate, request: Request) -> dict[str, Any]:
+        path = request.app.state.settings.notion_token_file
+        if path is None:
+            raise HTTPException(status_code=503, detail="runtime secret file is not configured")
+        try:
+            write_secret_file(path, body.token.get_secret_value())
+        except OSError as exc:
+            raise HTTPException(status_code=503, detail="runtime secret file is not writable") from exc
+        return {
+            "saved": True,
+            "notion_configured": bool(request.app.state.settings.notion_token_value),
+            "notion_token_source": request.app.state.settings.notion_token_source,
+        }
+
+    @router.delete(
+        "/api/v1/admin/notion-token",
+        dependencies=[Depends(require_setup_token)],
+    )
+    def delete_notion_token(request: Request) -> dict[str, Any]:
+        removed = delete_secret_file(request.app.state.settings.notion_token_file)
+        return {
+            "removed": removed,
+            "notion_configured": bool(request.app.state.settings.notion_token_value),
+            "notion_token_source": request.app.state.settings.notion_token_source,
+        }
+
+    @router.post(
+        "/api/v1/admin/notion/test",
+        dependencies=[Depends(require_setup_token)],
+    )
+    def test_notion_token(request: Request) -> dict[str, Any]:
+        try:
+            with NotionClient(request.app.state.settings) as client:
+                client.retrieve_self()
+        except NotionNotConfigured as exc:
+            raise HTTPException(status_code=409, detail="Notion token is not configured") from exc
+        except NotionAPIError as exc:
+            if exc.status_code in {401, 403}:
+                raise HTTPException(
+                    status_code=exc.status_code,
+                    detail="Notion rejected the token or the connection lacks access",
+                ) from exc
+            raise HTTPException(status_code=502, detail="Notion API connection failed") from exc
+        return {"ok": True, "message": "Notion connection accepted"}
 
     @router.post(
         "/api/v1/sync/roots",
@@ -81,6 +177,19 @@ def build_router() -> APIRouter:
     def list_roots(session: Session = Depends(db_session)) -> list[SyncRoot]:
         return list(session.scalars(select(SyncRoot).order_by(SyncRoot.created_at)).all())
 
+    @router.delete(
+        "/api/v1/sync/roots/{root_id}",
+        response_model=RootResponse,
+        dependencies=[Depends(require_setup_token)],
+    )
+    def disable_root(root_id: str, session: Session = Depends(db_session)) -> SyncRoot:
+        root = session.get(SyncRoot, root_id)
+        if root is None:
+            raise HTTPException(status_code=404, detail="sync root not found")
+        root.status = "disabled"
+        session.flush()
+        return root
+
     @router.post(
         "/api/v1/sync/roots/{root_id}/runs",
         response_model=RunResponse,
@@ -113,6 +222,21 @@ def build_router() -> APIRouter:
         if run is None:
             raise HTTPException(status_code=404, detail="sync run not found")
         return run
+
+    @router.get(
+        "/api/v1/sync/runs",
+        response_model=list[RunResponse],
+        dependencies=[Depends(require_setup_token)],
+    )
+    def list_runs(
+        root_id: str | None = None,
+        limit: int = Query(default=20, ge=1, le=100),
+        session: Session = Depends(db_session),
+    ) -> list[SyncRun]:
+        query = select(SyncRun).order_by(SyncRun.created_at.desc()).limit(limit)
+        if root_id:
+            query = query.where(SyncRun.root_id == root_id)
+        return list(session.scalars(query).all())
 
     @router.get(
         "/api/v1/library",
@@ -234,6 +358,14 @@ def build_router() -> APIRouter:
         return Response(status_code=202)
 
     return router
+
+
+def _admin_session_is_valid(request: Request) -> bool:
+    expected = request.app.state.settings.setup_token_value
+    supplied = request.cookies.get(ADMIN_SESSION_COOKIE)
+    if not expected or not supplied:
+        return False
+    return hmac.compare_digest(supplied, admin_session_value(expected))
 
 
 def _verify_signature(body: bytes, signature: str, secret: str) -> bool:

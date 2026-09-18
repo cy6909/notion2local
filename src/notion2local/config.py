@@ -6,6 +6,8 @@ from pathlib import Path
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from .runtime_secrets import read_secret_file
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -27,6 +29,7 @@ class Settings(BaseSettings):
     notion_api_base_url: str = "https://api.notion.com/v1"
     notion_api_version: str = "2026-03-11"
     notion_token: SecretStr | None = None
+    notion_token_file: Path | None = Path("./data/config/notion_token")
     notion_webhook_secret: SecretStr | None = None
     setup_token: SecretStr | None = None
 
@@ -39,7 +42,15 @@ class Settings(BaseSettings):
 
     @property
     def notion_token_value(self) -> str | None:
-        return self._secret_value(self.notion_token)
+        return read_secret_file(self.notion_token_file) or self._secret_value(self.notion_token)
+
+    @property
+    def notion_token_source(self) -> str:
+        if read_secret_file(self.notion_token_file):
+            return "runtime_file"
+        if self._secret_value(self.notion_token):
+            return "environment"
+        return "none"
 
     @property
     def notion_webhook_secret_value(self) -> str | None:

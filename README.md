@@ -29,12 +29,23 @@ docker compose ps
 核心入口：
 
 - `/`：当前只读状态页。
+- `/admin`：可视化初始化与管理控制台；使用 `SETUP_TOKEN` 建立短时管理会话。
 - `/healthz`：进程健康检查。
 - `/readyz`：数据库就绪检查。
 - `/docs`：API 文档。
 - `/api/v1/setup/status`：不泄露 secret 的配置状态。
 
-## 在 10.89.2.39 注入 Notion Token
+## 可视化配置与管理
+
+首次启动后打开 `http://<部署地址>:8080/admin`，输入远程 `.env` 中的 `SETUP_TOKEN` 进入控制台。控制台支持：
+
+- 输入、轮换、测试和移除 Notion Internal Connection Token；Token 只写入持久化 `config-data` secret volume，不回显、不进入浏览器存储、不写入 Notion。
+- 添加、立即同步和停用 Notion 根页面；停用只停止后续同步，不删除本地快照。
+- 查看授权状态、Token 来源、API 版本、每日对账时间和当前同步范围。
+
+管理会话使用 HttpOnly、SameSite cookie；如果通过公网或内网穿透访问控制台，应优先使用 HTTPS。`SETUP_TOKEN` 仍然只用于管理面认证，不能替代 Notion Token。
+
+## 在 10.89.2.39 手工注入 Notion Token（恢复入口）
 
 当前阶段使用 Notion Internal Connection Token。先在 Notion 创建一个只读连接，并把需要归档的根页面（以及其中的数据库）通过页面右上角菜单的 Connections/连接共享给该连接。Notion 连接默认只对显式共享的页面可见，官方步骤见 [Create integrations with the Notion API](https://www.notion.com/en-gb/help/create-integrations-with-the-notion-api)。
 

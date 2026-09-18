@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from ..utils import normalize_notion_id
 
@@ -20,6 +20,14 @@ class RootCreate(BaseModel):
     @classmethod
     def validate_root_object_id(cls, value: str) -> str:
         return normalize_notion_id(value)
+
+
+class AdminLogin(BaseModel):
+    setup_token: SecretStr = Field(min_length=1, max_length=500)
+
+
+class NotionTokenUpdate(BaseModel):
+    token: SecretStr = Field(min_length=1, max_length=500)
 
 
 class RootResponse(BaseModel):

@@ -89,6 +89,9 @@ class NotionClient:
     def retrieve_user(self, user_id: str) -> dict[str, Any]:
         return self.request("GET", f"/users/{user_id}")
 
+    def retrieve_self(self) -> dict[str, Any]:
+        return self.request("GET", "/users/me")
+
     def retrieve_file_upload(self, file_upload_id: str) -> dict[str, Any]:
         return self.request("GET", f"/file_uploads/{file_upload_id}")
 
