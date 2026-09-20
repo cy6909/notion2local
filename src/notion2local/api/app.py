@@ -50,6 +50,21 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
     def admin_scripts() -> FileResponse:
         return FileResponse(static_dir / "admin.js", media_type="text/javascript")
 
+    @app.get("/library", response_class=HTMLResponse)
+    def library() -> HTMLResponse:
+        return HTMLResponse(
+            (static_dir / "library.html").read_text(encoding="utf-8"),
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/library-assets.css")
+    def library_styles() -> FileResponse:
+        return FileResponse(static_dir / "library.css", media_type="text/css")
+
+    @app.get("/library-assets.js")
+    def library_scripts() -> FileResponse:
+        return FileResponse(static_dir / "library.js", media_type="text/javascript")
+
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request) -> str:
         settings = request.app.state.settings
@@ -58,6 +73,7 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
 <title>{escape(settings.app_name)}</title>
 <style>body{{font-family:system-ui,sans-serif;max-width:760px;margin:3rem auto;padding:0 1rem;color:#172033}}code{{background:#eef2f7;padding:.15rem .35rem;border-radius:.25rem}}.card{{border:1px solid #dbe2ea;border-radius:12px;padding:1.2rem;margin:1rem 0}}</style>
 </head><body><h1>Notion2Local</h1><p>只读、本地、可恢复的 Notion 镜像服务。</p>
+<div class='card'><strong>本地笔记</strong><p><a href='/library'>打开本地只读阅读器</a></p></div>
 <div class='card'><strong>控制台</strong><p><a href='/admin'>打开可视化初始化与管理控制台</a></p></div>
 <div class='card'><strong>服务状态</strong><p><a href='/healthz'>healthz</a> · <a href='/readyz'>readyz</a> · <a href='/docs'>API 文档</a></p></div>
 <div class='card'><strong>安全边界</strong><p>Token 只在控制台提交到本地运行时 secret 文件，不会回显、写入 Notion 或前端存储。</p></div>

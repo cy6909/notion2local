@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111827">
+  <title>Local Notes · Notion2Local</title>
+  <link rel="stylesheet" href="/library-assets.css">
+</head>
+<body>
+  <div class="reader-shell">
+    <header class="reader-topbar">
+      <a class="brand" href="/" aria-label="返回 Notion2Local 首页">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span>Notion2Local</span>
+      </a>
+      <div class="topbar-center">
+        <span class="eyebrow">LOCAL ARCHIVE / READER</span>
+        <span id="sync-state" class="status-pill status-muted">读取中</span>
+      </div>
+      <nav class="topbar-nav">
+        <a href="/admin">管理控制台</a>
+        <span id="archive-count">—</span>
+      </nav>
+    </header>
+
+    <main class="reader-grid">
+      <aside class="library-sidebar" aria-label="本地页面列表">
+        <div class="sidebar-intro">
+          <p class="eyebrow accent">OFFLINE INDEX</p>
+          <h1>本地笔记</h1>
+          <p>这里读取的是 39 机器上的归档，不会回源 Notion。同步中的页面也会在提交检查点后出现在列表里。</p>
+        </div>
+        <div class="search-box">
+          <label for="page-search">查找页面</label>
+          <input id="page-search" type="search" placeholder="标题关键词…" autocomplete="off">
+        </div>
+        <div class="list-heading">
+          <span>最近落盘</span>
+          <span id="list-count">—</span>
+        </div>
+        <div id="page-list" class="page-list" role="list"></div>
+        <button id="load-more" class="load-more" type="button" hidden>加载更多页面</button>
+        <div id="reader-message" class="reader-message" role="status"></div>
+      </aside>
+
+      <section class="note-stage" aria-live="polite">
+        <div id="reader-gate" class="reader-gate" hidden>
+          <p class="eyebrow accent">SESSION REQUIRED</p>
+          <h2>先打开本地控制台</h2>
+          <p>阅读器和管理操作共用短时管理会话。登录后返回本页即可读取本地内容。</p>
+          <a class="primary-link" href="/admin">进入控制台 ↗</a>
+        </div>
+
+        <div id="empty-note" class="empty-note">
+          <div class="empty-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+          <p class="eyebrow">SELECT A PAGE</p>
+          <h2>从左侧选一页本地笔记</h2>
+          <p>正文、页面属性、块层级和归档状态会从本地数据库读取。</p>
+        </div>
+
+        <article id="note-article" class="note-article" hidden>
+          <div class="article-kicker">
+            <span id="article-kind">PAGE</span>
+            <span id="article-state">LOCAL</span>
+          </div>
+          <h2 id="article-title"></h2>
+          <div id="article-meta" class="article-meta"></div>
+          <div id="article-properties" class="property-grid"></div>
+          <div class="article-rule"></div>
+          <div id="article-body" class="article-body"></div>
+          <div id="article-foot" class="article-foot"></div>
+        </article>
+      </section>
+    </main>
+  </div>
+  <script src="/library-assets.js" defer></script>
+</body>
+</html>

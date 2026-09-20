@@ -18,6 +18,8 @@ from ..sync.tasks import enqueue_task
 from ..utils import utc_now
 from .schemas import (
     AdminLogin,
+    LibraryBlock,
+    LibraryPageContent,
     NotionTokenUpdate,
     ObjectDetail,
     ObjectSummary,
@@ -320,6 +322,121 @@ def build_router() -> APIRouter:
         return list(session.scalars(query).all())
 
     @router.get(
+        "/api/v1/library/stats",
+        dependencies=[Depends(require_setup_token)],
+    )
+    def library_stats(
+        session: Session = Depends(db_session),
+        root_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Return non-sensitive local archive counts and the latest run checkpoint."""
+
+        root = session.scalar(select(SyncRoot).where(SyncRoot.root_object_id == WORKSPACE_ROOT_ID))
+        effective_root_id = root_id or (root.id if root else None)
+        counts: dict[str, int] = {}
+        latest_run: SyncRun | None = None
+        if effective_root_id:
+            rows = session.execute(
+                select(NotionObject.object_type, func.count())
+                .where(NotionObject.root_id == effective_root_id)
+                .group_by(NotionObject.object_type)
+            ).all()
+            counts = {str(object_type): int(count) for object_type, count in rows}
+            latest_run = session.scalar(
+                select(SyncRun)
+                .where(SyncRun.root_id == effective_root_id)
+                .order_by(SyncRun.created_at.desc())
+            )
+        return {
+            "root_id": effective_root_id,
+            "total": sum(counts.values()),
+            "counts": counts,
+            "workspace_initialized": bool(root and root.last_sync_at is not None),
+            "root_status": root.status if root else None,
+            "run": RunResponse.model_validate(latest_run).model_dump(mode="json") if latest_run else None,
+        }
+
+    @router.get(
+        "/api/v1/library/pages/{page_id}/content",
+        response_model=LibraryPageContent,
+        dependencies=[Depends(require_setup_token)],
+    )
+    def get_page_content(
+        page_id: str,
+        depth: int = Query(default=4, ge=1, le=10),
+        limit: int = Query(default=600, ge=1, le=2000),
+        session: Session = Depends(db_session),
+    ) -> LibraryPageContent:
+        """Return a bounded, ordered local projection of a page and its block tree."""
+
+        page = session.get(NotionObject, f"page:{page_id}")
+        if page is None:
+            raise HTTPException(status_code=404, detail="page not found")
+
+        current_edges = list(
+            session.scalars(
+                select(GraphEdge).where(
+                    GraphEdge.root_id == page.root_id,
+                    GraphEdge.edge_type == "parent",
+                    GraphEdge.is_current.is_(True),
+                )
+            ).all()
+        )
+        children_by_parent: dict[str, list[GraphEdge]] = {}
+        for edge in current_edges:
+            children_by_parent.setdefault(edge.from_object_key, []).append(edge)
+        for edges in children_by_parent.values():
+            edges.sort(key=lambda edge: (edge.position is None, edge.position or 0, edge.created_at))
+
+        pending: list[tuple[str, int]] = [(page.record_key, 0)]
+        visited = {page.record_key}
+        discovered: list[tuple[GraphEdge, int]] = []
+        truncated = False
+        while pending:
+            parent_key, parent_depth = pending.pop(0)
+            if parent_depth >= depth:
+                continue
+            for edge in children_by_parent.get(parent_key, []):
+                if edge.to_object_key in visited:
+                    continue
+                visited.add(edge.to_object_key)
+                child_depth = parent_depth + 1
+                discovered.append((edge, child_depth))
+                if len(discovered) >= limit:
+                    truncated = True
+                    break
+                pending.append((edge.to_object_key, child_depth))
+            if truncated:
+                break
+
+        object_keys = [edge.to_object_key for edge, _ in discovered]
+        objects = {
+            item.record_key: item
+            for item in session.scalars(
+                select(NotionObject).where(NotionObject.record_key.in_(object_keys))
+            ).all()
+        }
+        blocks = [
+            LibraryBlock(
+                record_key=edge.to_object_key,
+                object_id=objects[edge.to_object_key].object_id,
+                object_type=objects[edge.to_object_key].object_type,
+                parent_object_id=objects[edge.to_object_key].parent_object_id,
+                title=objects[edge.to_object_key].title,
+                sync_state=objects[edge.to_object_key].sync_state,
+                position=edge.position,
+                depth=child_depth,
+                current_payload=objects[edge.to_object_key].current_payload,
+                in_trash=objects[edge.to_object_key].in_trash,
+                archived=objects[edge.to_object_key].archived,
+                has_children=objects[edge.to_object_key].has_children,
+            )
+            for edge, child_depth in discovered
+            if edge.to_object_key in objects
+        ]
+        return LibraryPageContent(page=_object_detail(session, page), blocks=blocks, truncated=truncated)
+
+    @router.get(
         "/api/v1/library/objects/{object_id}",
         response_model=ObjectDetail,
         dependencies=[Depends(require_setup_token)],
@@ -333,30 +450,7 @@ def build_router() -> APIRouter:
         current = session.get(NotionObject, record_key)
         if current is None:
             raise HTTPException(status_code=404, detail="object not found")
-        edges = session.scalars(
-            select(GraphEdge).where(
-                GraphEdge.is_current.is_(True),
-                (GraphEdge.from_object_key == record_key) | (GraphEdge.to_object_key == record_key),
-            )
-        ).all()
-        return ObjectDetail(
-            **ObjectSummary.model_validate(current).model_dump(),
-            current_payload=current.current_payload,
-            current_raw_path=current.current_raw_path,
-            in_trash=current.in_trash,
-            archived=current.archived,
-            has_children=current.has_children,
-            edges=[
-                {
-                    "from": edge.from_object_key,
-                    "to": edge.to_object_key,
-                    "type": edge.edge_type,
-                    "position": edge.position,
-                    "metadata": edge.metadata_json,
-                }
-                for edge in edges
-            ],
-        )
+        return _object_detail(session, current)
 
     @router.post("/webhooks/notion")
     async def notion_webhook(request: Request) -> Response:
@@ -428,6 +522,34 @@ def _admin_session_is_valid(request: Request) -> bool:
     if not expected or not supplied:
         return False
     return hmac.compare_digest(supplied, admin_session_value(expected))
+
+
+def _object_detail(session: Session, current: NotionObject) -> ObjectDetail:
+    record_key = current.record_key
+    edges = session.scalars(
+        select(GraphEdge).where(
+            GraphEdge.is_current.is_(True),
+            (GraphEdge.from_object_key == record_key) | (GraphEdge.to_object_key == record_key),
+        )
+    ).all()
+    return ObjectDetail(
+        **ObjectSummary.model_validate(current).model_dump(),
+        current_payload=current.current_payload,
+        current_raw_path=current.current_raw_path,
+        in_trash=current.in_trash,
+        archived=current.archived,
+        has_children=current.has_children,
+        edges=[
+            {
+                "from": edge.from_object_key,
+                "to": edge.to_object_key,
+                "type": edge.edge_type,
+                "position": edge.position,
+                "metadata": edge.metadata_json,
+            }
+            for edge in edges
+        ],
+    )
 
 
 def _verify_signature(body: bytes, signature: str, secret: str) -> bool:

@@ -80,3 +80,24 @@ class ObjectDetail(ObjectSummary):
     archived: bool
     has_children: bool
     edges: list[dict[str, Any]]
+
+
+class LibraryBlock(BaseModel):
+    record_key: str
+    object_id: str
+    object_type: str
+    parent_object_id: str | None
+    title: str | None
+    sync_state: str
+    position: int | None
+    depth: int
+    current_payload: dict[str, Any] | None
+    in_trash: bool
+    archived: bool
+    has_children: bool
+
+
+class LibraryPageContent(BaseModel):
+    page: ObjectDetail
+    blocks: list[LibraryBlock]
+    truncated: bool

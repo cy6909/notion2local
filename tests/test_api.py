@@ -81,6 +81,24 @@ def test_workspace_initialization_is_idempotent(tmp_path):
         assert status["root_count"] == 1
 
 
+def test_local_library_reader_is_session_protected(tmp_path):
+    with make_client(tmp_path) as client:
+        page = client.get("/library")
+        assert page.status_code == 200
+        assert "本地笔记" in page.text
+
+        unauthorized = client.get("/api/v1/library/stats")
+        assert unauthorized.status_code == 401
+
+        login = client.post("/api/v1/admin/session", json={"setup_token": "setup-secret"})
+        assert login.status_code == 200
+        stats = client.get("/api/v1/library/stats")
+
+    assert stats.status_code == 200
+    assert stats.json()["total"] == 0
+    assert stats.json()["run"] is None
+
+
 def test_webhook_signature_is_verified_and_idempotent(tmp_path):
     with make_client(tmp_path) as client:
         body = json.dumps(
