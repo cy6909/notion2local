@@ -5,6 +5,7 @@ const state = {
   pageSize: 100,
   selectedId: null,
   loadingPages: false,
+  hasMore: true,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -72,6 +73,17 @@ function blockRichText(payload) {
   return richTextToHtml(value.rich_text || value.title || value.caption || []);
 }
 
+function propertyValueText(value) {
+  if (value == null || value === "") return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.map(propertyValueText).filter(Boolean).join(" · ");
+  if (typeof value !== "object") return "";
+  if (value.type && value[value.type] !== undefined) return propertyValueText(value[value.type]);
+  if (value.plain_text || value.text?.content || value.name || value.id) return value.plain_text || value.text?.content || value.name || value.id;
+  if (value.start) return value.end ? `${value.start} → ${value.end}` : value.start;
+  return "";
+}
+
 function blockHtml(block) {
   const payload = block.current_payload || {};
   const type = payload.type || block.object_type || "unknown";
@@ -91,8 +103,9 @@ function blockHtml(block) {
   if (["image", "video", "file", "pdf", "audio", "bookmark", "embed", "link_preview"].includes(type)) {
     return `<div class="article-block"${style}><div class="media-card"><strong>${escapeHtml(type)}</strong>${text || "本地已保存该媒体的 Notion 元数据；二进制阅读投影尚未接入。"}</div></div>`;
   }
-  if (type === "child_page" || type === "child_database") {
-    return `<div class="article-block"${style}><div class="child-card"><strong>${escapeHtml(type === "child_page" ? "子页面" : "子数据库")}</strong>${text || escapeHtml(block.title || "未命名")}</div></div>`;
+  if (type === "child_page" || type === "page" || type === "child_database" || type === "database") {
+    const childKind = type === "child_database" || type === "database" ? "子数据库" : "子页面";
+    return `<div class="article-block"${style}><div class="child-card"><strong>${childKind}</strong>${text || escapeHtml(block.title || "未命名")}</div></div>`;
   }
   if (type === "table_row") {
     const cells = Array.isArray(value.cells) ? value.cells.map((cell) => `<td>${richTextToHtml(cell)}</td>`).join("") : "";
@@ -108,16 +121,18 @@ function blockHtml(block) {
 function propertyText(property) {
   if (!property || !property.type) return "";
   const value = property[property.type];
-  if (property.type === "title" || property.type === "rich_text") return (value || []).map((item) => item.plain_text || item.text?.content || "").join("");
+  if (property.type === "title" || property.type === "rich_text") return (value || []).map(propertyValueText).join("");
   if (property.type === "select" || property.type === "status") return value?.name || "";
   if (property.type === "multi_select") return (value || []).map((item) => item.name).join(" · ");
   if (property.type === "checkbox") return value ? "已完成" : "未完成";
-  if (property.type === "url") return value || "";
-  if (property.type === "number") return value == null ? "" : String(value);
-  if (property.type === "date") return value?.start || "";
+  if (["url", "email", "phone_number", "number", "created_time", "last_edited_time"].includes(property.type)) return propertyValueText(value);
+  if (property.type === "date") return propertyValueText(value);
   if (property.type === "people") return (value || []).map((item) => item.name || item.id).join(" · ");
   if (property.type === "relation") return `${(value || []).length} 个关联页面`;
-  return value == null ? "" : String(value);
+  if (property.type === "formula" || property.type === "rollup") return propertyValueText(value);
+  if (property.type === "files") return (value || []).map((item) => item.name || item.file?.url || item.external?.url).filter(Boolean).join(" · ");
+  if (property.type === "unique_id") return [value?.prefix, value?.number].filter(Boolean).join("-");
+  return propertyValueText(value);
 }
 
 function renderPages() {
@@ -131,17 +146,18 @@ function renderPages() {
       <span class="page-card-meta"><span>${escapeHtml(formatDate(page.updated_at))}</span><span class="page-card-state ${trashed ? "is-trashed" : ""}">${trashed ? "已归档" : "本地"}</span></span>
     </button>`;
   }).join("");
-  $("#load-more").hidden = Boolean(query) || state.pages.length < state.offset;
+  $("#load-more").hidden = Boolean(query) || !state.hasMore;
 }
 
 async function loadPages(reset = false) {
   if (state.loadingPages || !state.rootId) return;
   state.loadingPages = true;
-  if (reset) { state.pages = []; state.offset = 0; }
+  if (reset) { state.pages = []; state.offset = 0; state.hasMore = true; }
   try {
     const pages = await request(`/api/v1/library?root_id=${encodeURIComponent(state.rootId)}&object_type=page&limit=${state.pageSize}&offset=${state.offset}`);
     state.pages.push(...pages);
     state.offset += pages.length;
+    state.hasMore = pages.length === state.pageSize;
     renderPages();
     if (!state.selectedId && state.pages[0]) selectPage(state.pages[0].object_id);
   } catch (error) {
