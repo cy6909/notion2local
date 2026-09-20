@@ -60,6 +60,8 @@ class RunResponse(BaseModel):
 
 
 class ObjectSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     record_key: str
     object_id: str
     object_type: str

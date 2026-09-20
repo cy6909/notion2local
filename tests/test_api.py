@@ -9,6 +9,8 @@ from fastapi.testclient import TestClient
 from notion2local.api.app import create_app
 from notion2local.config import Settings
 from notion2local.db import Database
+from notion2local.models import GraphEdge, NotionObject
+from notion2local.utils import utc_now
 
 
 def make_client(tmp_path):
@@ -97,6 +99,53 @@ def test_local_library_reader_is_session_protected(tmp_path):
     assert stats.status_code == 200
     assert stats.json()["total"] == 0
     assert stats.json()["run"] is None
+
+
+def test_local_library_page_content_serializes_orm_objects(tmp_path):
+    with make_client(tmp_path) as client:
+        database = client.app.state.database
+        now = utc_now()
+        with database.session() as session:
+            session.add(
+                NotionObject(
+                    record_key="page:page-1",
+                    object_id="page-1",
+                    object_type="page",
+                    title="示例页面",
+                    current_payload={"type": "page", "properties": {}},
+                    sync_state="seen",
+                    updated_at=now,
+                )
+            )
+            session.add(
+                NotionObject(
+                    record_key="block:block-1",
+                    object_id="block-1",
+                    object_type="paragraph",
+                    parent_object_id="page-1",
+                    current_payload={
+                        "type": "paragraph",
+                        "paragraph": {"rich_text": [{"plain_text": "正文"}]},
+                    },
+                    sync_state="seen",
+                    updated_at=now,
+                )
+            )
+            session.add(
+                GraphEdge(
+                    root_id=None,
+                    from_object_key="page:page-1",
+                    to_object_key="block:block-1",
+                    edge_type="parent",
+                    position=0,
+                )
+            )
+        client.post("/api/v1/admin/session", json={"setup_token": "setup-secret"})
+        response = client.get("/api/v1/library/pages/page-1/content")
+
+    assert response.status_code == 200
+    assert response.json()["page"]["title"] == "示例页面"
+    assert response.json()["blocks"][0]["current_payload"]["type"] == "paragraph"
 
 
 def test_webhook_signature_is_verified_and_idempotent(tmp_path):
