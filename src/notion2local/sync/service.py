@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
@@ -10,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..config import Settings
 from ..models import GraphEdge, NotionObject, ObjectSnapshot, SyncRoot, SyncRun
-from ..notion.client import NotionAPIError, NotionClient
+from ..notion.client import NotionClient
 from ..storage.raw import RawSnapshotStore
 from ..utils import content_hash, parse_iso_datetime, utc_now
 
@@ -283,14 +282,7 @@ class SyncService:
                 return self.client.retrieve_file_upload(object_id)
             raise ValueError(f"unsupported Notion object kind: {object_kind}")
 
-        for attempt in range(4):
-            try:
-                return call()
-            except NotionAPIError as exc:
-                if exc.status_code not in {408, 429, 500, 502, 503, 504} or attempt == 3:
-                    raise
-                time.sleep(min(NotionClient.retry_delay(exc, attempt), 10.0))
-        raise AssertionError("unreachable")
+        return call()
 
     def _persist_payload(
         self,

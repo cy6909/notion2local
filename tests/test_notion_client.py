@@ -56,3 +56,20 @@ def test_iter_search_follows_all_pages(tmp_path: Path):
         {"object": "data_source", "id": "ds1"},
     ]
     assert calls == [None, "cursor-1"]
+
+
+def test_request_retries_transient_transport_failure(tmp_path: Path):
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise httpx.ReadTimeout("connection closed while reading")
+        return httpx.Response(200, json={"object": "page", "id": "p1"})
+
+    settings = Settings(notion_token="secret-token", notion_token_file=tmp_path / "notion_token")
+    client = NotionClient(settings, client=httpx.Client(transport=httpx.MockTransport(handler)))
+
+    assert client.retrieve_page("p1")["id"] == "p1"
+    assert calls == 2

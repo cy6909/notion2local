@@ -61,18 +61,38 @@ class NotionClient:
         params: dict[str, str] | None = None,
         json_body: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        response = self._client.request(
-            method,
-            f"{self.settings.notion_api_base_url.rstrip('/')}/{path.lstrip('/')}",
-            headers=self._headers(),
-            params=params,
-            json=json_body,
-        )
-        if response.status_code >= 400:
+        url = f"{self.settings.notion_api_base_url.rstrip('/')}/{path.lstrip('/')}"
+        retryable_statuses = {408, 429, 500, 502, 503, 504}
+        for attempt in range(4):
+            try:
+                response = self._client.request(
+                    method,
+                    url,
+                    headers=self._headers(),
+                    params=params,
+                    json=json_body,
+                )
+            except httpx.TransportError as exc:
+                # Notion occasionally closes an otherwise healthy connection while a
+                # large workspace is being crawled. Convert transport failures into
+                # the same bounded retry path as transient HTTP responses.
+                error = NotionAPIError(503, f"Notion transport error: {type(exc).__name__}")
+                if attempt == 3:
+                    raise error from exc
+                time.sleep(min(self.retry_delay(error, attempt), 10.0))
+                continue
+
+            if response.status_code < 400:
+                return response.json()
+
             retry_after = self._retry_after(response)
             detail = response.text[:2000]
-            raise NotionAPIError(response.status_code, f"Notion API {response.status_code}: {detail}", retry_after)
-        return response.json()
+            error = NotionAPIError(response.status_code, f"Notion API {response.status_code}: {detail}", retry_after)
+            if response.status_code not in retryable_statuses or attempt == 3:
+                raise error
+            time.sleep(min(self.retry_delay(error, attempt), 10.0))
+
+        raise AssertionError("unreachable")
 
     def retrieve_page(self, page_id: str) -> dict[str, Any]:
         return self.request("GET", f"/pages/{page_id}")

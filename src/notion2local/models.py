@@ -52,7 +52,9 @@ class NotionObject(Base):
     object_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     root_id: Mapped[str | None] = mapped_column(ForeignKey("sync_roots.id"), nullable=True, index=True)
     parent_object_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    title: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    # Notion rich-text titles have no useful 1000-character ceiling. Keep the
+    # normalized index lossless; raw snapshots remain the source of truth.
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     remote_last_edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     current_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
